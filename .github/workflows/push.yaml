@@ -35,6 +35,7 @@ jobs:
         with:
           context: .
           file: ./docker/Dockerfile
+          push: true
           tags: |
             ghcr.io/amagioss/trow:${{ env.TAG }}
             ghcr.io/amagioss/trow:latest

@@ -6,7 +6,7 @@ src_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$src_dir"
 
 docker="$(command -v docker 2> /dev/null || echo "podman")"
-GH_REPO="ghcr.io/trow-registry/trow"
+GH_REPO="ghcr.io/amagioss/trow"
 
 
 # Check if cargo-sqlx is installed
@@ -51,7 +51,7 @@ if [ "$docker" = "docker" ]; then
 fi
 
 VERSION=$(sed '/^version = */!d; s///;q' ../Cargo.toml | sed s/\"//g)
-TAG="$VERSION"
+TAG="$VERSION-amagi"
 GH_IMAGE="$GH_REPO:$TAG"
 DATE="$(date '+%Y-%m-%d %T%z')"
 

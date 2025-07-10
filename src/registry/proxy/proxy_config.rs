@@ -102,10 +102,14 @@ impl SingleRegistryProxyConfig {
         }
         let client = oci_client::Client::new(client_config);
         let auth = match self.username.as_deref() {
-            Some(u @ "AWS") if self.host.contains(".dkr.ecr.") => {
-                let passwd = get_aws_ecr_password_from_env(&self.host).await?;
-                RegistryAuth::Basic(u.to_string(), passwd)
-            }
+            // Commenting out the following code block since the password
+            // for the private ECR repository would be provided directly
+            // through the trow configuration secret.
+            //
+            // Some(u @ "AWS") if self.host.contains(".dkr.ecr.") => {
+            //     let passwd = get_aws_ecr_password_from_env(&self.host).await?;
+            //     RegistryAuth::Basic(u.to_string(), passwd)
+            // }
             Some(u) => {
                 RegistryAuth::Basic(u.to_string(), self.password.clone().unwrap_or_default())
             }

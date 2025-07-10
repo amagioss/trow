@@ -73,7 +73,7 @@ if [ "$docker" = "docker" ]; then
     # Can't load the image in the local registry... See https://github.com/docker/roadmap/issues/371
     docker buildx build \
         "${BUILD_ARGS[@]}" \
-        $PUSH \
+        --push \
         --pull \
         --platform linux/amd64,linux/arm64 \
         -t $GH_IMAGE \

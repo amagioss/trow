@@ -3,7 +3,7 @@ name: Release Trow
 on:
   push:
     branch:
-      - ecr-patch
+      - main
 
 jobs:
   release-trow:

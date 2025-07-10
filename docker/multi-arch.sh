@@ -51,7 +51,7 @@ if [ "$docker" = "docker" ]; then
 fi
 
 VERSION=$(sed '/^version = */!d; s///;q' ../Cargo.toml | sed s/\"//g)
-TAG="$VERSION-amagi"
+TAG="$VERSION-amagi-${GITHUB_SHA::7}"
 GH_IMAGE="$GH_REPO:$TAG"
 DATE="$(date '+%Y-%m-%d %T%z')"
 

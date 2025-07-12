@@ -1,7 +1,11 @@
 use aws_config::BehaviorVersion;
-use aws_sdk_ecr::config::http::HttpResponse;
-use aws_sdk_ecr::error::SdkError;
-use aws_sdk_ecr::operation::get_authorization_token::GetAuthorizationTokenError;
+use aws_config::meta::region::RegionProviderChain;
+use aws_sdk_ecr::config::http::HttpResponse as EcrHttpResponse;
+use aws_sdk_ecr::error::SdkError as EcrSdkError;
+use aws_sdk_ecr::operation::get_authorization_token::GetAuthorizationTokenError as EcrGetAuthorizationTokenError;
+use aws_sdk_ecrpublic::config::http::HttpResponse as EcrPublicHttpResponse;
+use aws_sdk_ecrpublic::error::SdkError as EcrPublicSdkError;
+use aws_sdk_ecrpublic::operation::get_authorization_token::GetAuthorizationTokenError as EcrPublicGetAuthorizationTokenError;
 use base64::Engine;
 use futures::future::try_join_all;
 use oci_client::Reference;
@@ -89,6 +93,8 @@ pub enum DownloadRemoteImageError {
     ManifestDeserializationError(#[from] serde_json::Error),
     #[error("Could not get AWS ECR password: {0}")]
     EcrLoginError(#[from] EcrPasswordError),
+    #[error("Could not get AWS Public ECR password: {0}")]
+    EcrPublicLoginError(#[from] EcrPublicPasswordError),
 }
 
 impl SingleRegistryProxyConfig {
@@ -102,9 +108,24 @@ impl SingleRegistryProxyConfig {
         }
         let client = oci_client::Client::new(client_config);
         let auth = match self.username.as_deref() {
+            // If username and password are both provider, then
+            // directly use the username and password
+            Some(u) if self.password.is_some() => {
+                RegistryAuth::Basic(u.to_string(), self.password.clone().unwrap_or_default())
+            }
+            // If username is AWS, then based on the host, fetch the password
+            // from the appropriate AWS SDK.
+            // The password for Public ECR is fetched to overcome the rate
+            // limitations. To pull images from ECR Public unauthneticated,
+            // avoid provding the username.
             Some(u @ "AWS") => {
-                let passwd = get_aws_ecr_password_from_env(&self.host).await?;
-                RegistryAuth::Basic(u.to_string(), passwd)
+                if self.host.contains(".dkr.ecr.") {
+                    let passwd = get_aws_ecr_password_from_env(&self.host).await?;
+                    RegistryAuth::Basic(u.to_string(), passwd)
+                } else {
+                    let passwd = get_aws_ecr_public_password_from_env().await?;
+                    RegistryAuth::Basic(u.to_string(), passwd)
+                }
             }
             Some(u) => {
                 RegistryAuth::Basic(u.to_string(), self.password.clone().unwrap_or_default())
@@ -223,23 +244,55 @@ pub enum EcrPasswordError {
     #[error("Could not convert ECR token to UTF8: {0}")]
     Utf8Error(#[from] std::string::FromUtf8Error),
     #[error("Could not get AWS token: {0}")]
-    AWSError(#[from] SdkError<GetAuthorizationTokenError, HttpResponse>),
+    AWSError(#[from] EcrSdkError<EcrGetAuthorizationTokenError, EcrHttpResponse>),
 }
 
-/// Fetches AWS ECR credentials.
-/// We use the [rusoto ChainProvider](https://docs.rs/rusoto_credential/0.48.0/rusoto_credential/struct.ChainProvider.html)
-/// to fetch AWS credentials.
+#[derive(thiserror::Error, Debug)]
+pub enum EcrPublicPasswordError {
+    #[error("Could not decode ECR token: {0}")]
+    Base64DecodeError(#[from] base64::DecodeError),
+    #[error("Could not convert ECR token to UTF8: {0}")]
+    Utf8Error(#[from] std::string::FromUtf8Error),
+    #[error("Could not get AWS token: {0}")]
+    AWSError(#[from] EcrPublicSdkError<EcrPublicGetAuthorizationTokenError, EcrPublicHttpResponse>),
+}
+
+// Fetches AWS Public ECR credentials.
+// For Public ECR, we use the [aws-sdk-ecrpublic](https://docs.rs/aws-sdk-ecrpublic/0.16.0/aws_sdk_ecrpublic/index.html)
+// to fetch AWS credentials.
+async fn get_aws_ecr_public_password_from_env() -> Result<String, EcrPublicPasswordError> {
+    let region = RegionProviderChain::default_provider().or_else("us-east-1");
+    let config = aws_config::defaults(BehaviorVersion::v2025_01_17())
+        .region(region)
+        .load()
+        .await;
+    let ecr_public_clt = aws_sdk_ecrpublic::Client::new(&config);
+    let token_response = ecr_public_clt.get_authorization_token().send().await?;
+    let token = token_response
+        .authorization_data
+        .unwrap()
+        .authorization_token
+        .unwrap();
+
+    // The token is base64(username:password). Here, username is "AWS".
+    // To get the password, we trim "AWS:" from the decoded token.
+    let engine = base64::engine::general_purpose::STANDARD;
+    let mut auth_str = engine.decode(token)?;
+    auth_str.drain(0..4);
+
+    Ok(String::from_utf8(auth_str)?)
+}
+
+// Fetches AWS ECR credentials.
+// For Private ECR, we use the [rusoto ChainProvider](https://docs.rs/rusoto_credential/0.48.0/rusoto_credential/struct.ChainProvider.html)
+// to fetch AWS credentials.
 async fn get_aws_ecr_password_from_env(ecr_host: &str) -> Result<String, EcrPasswordError> {
-    let region = if !ecr_host.contains(".dkr.ecr.") {
-        aws_types::region::Region::new("us-east-1")
-    } else {
-        let region_str = ecr_host
-            .split('.')
-            .nth(3)
-            .ok_or(EcrPasswordError::InvalidRegion)?
-            .to_owned();
-        aws_types::region::Region::new(region_str)
-    };
+    let region = ecr_host
+        .split('.')
+        .nth(3)
+        .ok_or(EcrPasswordError::InvalidRegion)?
+        .to_owned();
+    let region = aws_types::region::Region::new(region);
     let config = aws_config::defaults(BehaviorVersion::v2025_01_17())
         .region(region)
         .load()

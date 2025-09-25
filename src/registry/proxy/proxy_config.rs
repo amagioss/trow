@@ -1,6 +1,9 @@
-use aws_sdk_ecr::config::http::HttpResponse;
-use aws_sdk_ecr::error::SdkError;
-use aws_sdk_ecr::operation::get_authorization_token::GetAuthorizationTokenError;
+use aws_sdk_ecr::config::http::HttpResponse as EcrHttpResponse;
+use aws_sdk_ecr::error::SdkError as EcrSdkError;
+use aws_sdk_ecr::operation::get_authorization_token::GetAuthorizationTokenError as EcrGetAuthorizationTokenError;
+use aws_sdk_ecrpublic::config::http::HttpResponse as EcrPublicHttpResponse;
+use aws_sdk_ecrpublic::error::SdkError as EcrPublicSdkError;
+use aws_sdk_ecrpublic::operation::get_authorization_token::GetAuthorizationTokenError as EcrPublicGetAuthorizationTokenError;
 use serde::{Deserialize, Serialize};
 
 use crate::registry::digest::DigestError;
@@ -85,6 +88,8 @@ pub enum DownloadRemoteImageError {
     ManifestDeserializationError(#[from] serde_json::Error),
     #[error("Could not get AWS ECR password: {0}")]
     EcrLoginError(#[from] EcrPasswordError),
+    #[error("Could not get AWS Public ECR password: {0}")]
+    EcrPublicLoginError(#[from] EcrPublicPasswordError),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -96,7 +101,17 @@ pub enum EcrPasswordError {
     #[error("Could not convert ECR token to UTF8: {0}")]
     Utf8Error(#[from] std::string::FromUtf8Error),
     #[error("Could not get AWS token: {0}")]
-    AWSError(#[from] SdkError<GetAuthorizationTokenError, HttpResponse>),
+    AWSError(#[from] EcrSdkError<EcrGetAuthorizationTokenError, EcrHttpResponse>),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum EcrPublicPasswordError {
+    #[error("Could not decode ECR token: {0}")]
+    Base64DecodeError(#[from] base64::DecodeError),
+    #[error("Could not convert ECR token to UTF8: {0}")]
+    Utf8Error(#[from] std::string::FromUtf8Error),
+    #[error("Could not get AWS token: {0}")]
+    AWSError(#[from] EcrPublicSdkError<EcrPublicGetAuthorizationTokenError, EcrPublicHttpResponse>),
 }
 
 #[cfg(test)]

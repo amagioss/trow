@@ -129,29 +129,24 @@ async fn get_oci_client(
         client_config.protocol = ClientProtocol::Http;
     }
     let client = oci_client::Client::new(client_config);
-    let auth = match cfg.and_then(|c| c.username.as_deref()) {
-        Some(u) => RegistryAuth::Basic(
-            u.to_string(),
-            cfg.map(|c| c.password.clone().unwrap_or_default())
-                .unwrap_or_default(),
-        ),
-        None => {
-            if REGEX_PRIVATE_ECR.is_match(host) {
-                let passwd = get_aws_ecr_password_from_env(host).await?;
-                RegistryAuth::Basic("AWS".to_string(), passwd)
-            // Login to public ECR to overcome the rate limits.
-            } else if host == "public.ecr.aws" {
-                match get_aws_ecr_public_password_from_env().await {
-                    Ok(passwd) => RegistryAuth::Basic("AWS".to_string(), passwd),
-                    Err(err) => {
-                        tracing::warn!("Could not get AWS ECR public password: {err}");
-                        RegistryAuth::Anonymous
-                    }
-                }
-            } else {
-                RegistryAuth::Anonymous
-            }
+    let auth = if let Some(cfg) = cfg {
+        if let Some(u) = cfg.username.as_deref() {
+            RegistryAuth::Basic(u.to_string(), cfg.password.clone().unwrap_or_default())
+        } else if host == "public.ecr.aws" {
+            // Config is present, so require ECR public password
+            let passwd = get_aws_ecr_public_password_from_env().await?;
+            RegistryAuth::Basic("AWS".to_string(), passwd)
+        } else if REGEX_PRIVATE_ECR.is_match(host) {
+            let passwd = get_aws_ecr_password_from_env(host).await?;
+            RegistryAuth::Basic("AWS".to_string(), passwd)
+        } else {
+            RegistryAuth::Anonymous
         }
+    } else if REGEX_PRIVATE_ECR.is_match(host) {
+        let passwd = get_aws_ecr_password_from_env(host).await?;
+        RegistryAuth::Basic("AWS".to_string(), passwd)
+    } else {
+        RegistryAuth::Anonymous
     };
 
     // client.auth(&image.clone().into(), &auth, RegistryOperation::Pull).await?;

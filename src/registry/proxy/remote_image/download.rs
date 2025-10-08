@@ -142,9 +142,6 @@ async fn get_oci_client(
         } else {
             RegistryAuth::Anonymous
         }
-    } else if REGEX_PRIVATE_ECR.is_match(host) {
-        let passwd = get_aws_ecr_password_from_env(host).await?;
-        RegistryAuth::Basic("AWS".to_string(), passwd)
     } else {
         RegistryAuth::Anonymous
     };

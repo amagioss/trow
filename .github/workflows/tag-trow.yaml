@@ -2,7 +2,7 @@ name: Release Trow
 
 on:
   push:
-    branch:
+    branches:
       - main
 
 jobs:
